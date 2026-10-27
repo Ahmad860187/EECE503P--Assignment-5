@@ -53,6 +53,7 @@ class BookingRequest(TypedDict):
     name: str
     contact: str
     job_date: str
+    area: str
     items: list[str]
     total_usd: float
     deposit_usd: float
@@ -84,6 +85,23 @@ def read_bookings():
         return [json.loads(line) for line in file if line.strip()]
 
 
+def check_day(job_date):
+    days_ahead = (job_date - date.today()).days
+    if days_ahead < 0:
+        raise ToolError(f"{job_date} has already passed.")
+    if job_date.weekday() == 6:
+        raise ToolError(f"{job_date} is a Sunday and we're closed. Pick a day from Monday to Saturday.")
+    return days_ahead < 2
+
+
+def price_job(service, option, area, express):
+    options = PRICES[service]
+    key = area if service == "the swap" else option.strip().lower()
+    if key not in options:
+        raise ToolError(f"'{option}' isn't an option for {service}. Use one of: {', '.join(options)}.")
+    return key, clean_number(options[key] * (1.5 if express else 1))
+
+
 @mcp.resource("cleanbreak://price-list")
 def price_list() -> dict:
     """Clean Break's full price list in USD and the booking rules."""
@@ -103,20 +121,11 @@ def get_quote(
     """Price one Clean Break job from the price list, including the Express surcharge under 48 hours' notice
     and the 30% deposit. Read-only, it doesn't book anything."""
     log(f"get_quote({service!r}, {job_date}, {area!r}, {option!r})")
-    options = PRICES[service]
-    key = area if service == "the swap" else option.strip().lower()
-    if key not in options:
-        raise ToolError(f"'{option}' isn't an option for {service}. Use one of: {', '.join(options)}.")
-    days_ahead = (job_date - date.today()).days
-    if days_ahead < 0:
-        raise ToolError(f"{job_date} has already passed.")
-    if job_date.weekday() == 6:
-        raise ToolError(f"{job_date} is a Sunday and we're closed. Pick a day from Monday to Saturday.")
-    express = days_ahead < 2
-    price = options[key] * (1.5 if express else 1)
+    express = check_day(job_date)
+    key, price = price_job(service, option, area, express)
     return {"service": service, "option": key, "area": area, "job_date": job_date.isoformat(),
             "weekday": job_date.strftime("%A"), "express": express,
-            "price_usd": clean_number(price), "deposit_usd": clean_number(price * 0.3)}
+            "price_usd": price, "deposit_usd": clean_number(price * 0.3)}
 
 
 @mcp.tool
@@ -124,29 +133,46 @@ def create_booking_request(
     name: str,
     contact: Contact,
     job_date: Day,
-    items: Annotated[list[str], Field(description="One line per job, for example 'silent move-out, 2-bedroom'")],
-    total_usd: float,
+    area: Area,
+    jobs: Annotated[list[Job], Field(description="The services to book, each with its option as in get_quote")],
+    total_usd: Annotated[float, Field(description="The total the customer was quoted, from get_quote")],
 ) -> BookingRequest:
     """Save a booking request for the Clean Break team. It is not a confirmed booking: the team calls the
-    customer to confirm, so the status is always 'pending team confirmation'."""
-    log(f"create_booking_request({name!r}, {job_date}, {items}, {total_usd})")
-    contact = contact.strip()
+    customer to confirm, so the status is always 'pending team confirmation'. The date, the jobs and the
+    total are checked against the price list before anything is saved."""
+    log(f"create_booking_request({name!r}, {job_date}, {area!r}, {len(jobs)} job(s), {total_usd})")
+    name, contact = name.strip(), contact.strip()
+    if not name:
+        raise ToolError("The booking request needs the customer's name.")
     phone = re.sub(r"[\s-]", "", contact)
     if not (re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", contact) or re.fullmatch(r"(\+961|0)?\d{7,8}", phone)):
         raise ToolError(f"'{contact}' isn't a valid phone number or email address.")
-    if not items or total_usd <= 0:
-        raise ToolError("A booking request needs at least one item and a total above 0.")
+    if not jobs:
+        raise ToolError("The booking request needs at least one job.")
+    express = check_day(job_date)
+    items, total = [], 0
+    for number, job in enumerate(jobs, 1):
+        try:
+            key, price = price_job(job["service"], job.get("option", ""), area, express)
+        except ToolError as error:
+            raise ToolError(f"Job {number} ({job['service']}): {error}") from error
+        items.append(f"{job['service']}, {key}" + (" (express)" if express else ""))
+        total += price
+    total = clean_number(total)
+    if abs(total - total_usd) > 0.01:
+        raise ToolError(f"These jobs cost ${total} on {job_date}, not ${clean_number(total_usd)}. "
+                        f"Get a new quote with get_quote and use that total.")
     existing = read_bookings()
     for booking in existing:
-        if (booking["name"].lower(), booking["job_date"], booking["items"]) == \
-                (name.strip().lower(), job_date.isoformat(), items):
+        if (booking["name"].lower(), booking["job_date"], booking.get("area"), booking["items"]) == \
+                (name.lower(), job_date.isoformat(), area, items):
             raise ToolError(f"{booking['request_id']} already has this exact request for {booking['name']} on "
                             f"{job_date}. It wasn't created twice.")
     if sum(booking["job_date"] == job_date.isoformat() for booking in existing) >= JOBS_PER_DAY:
         raise ToolError(f"{job_date} is fully booked ({JOBS_PER_DAY} jobs already). Pick another day.")
     booking = {"request_id": f"CB-{len(existing) + 1:04d}", "status": "pending team confirmation",
-               "name": name.strip(), "contact": contact, "job_date": job_date.isoformat(), "items": items,
-               "total_usd": clean_number(total_usd), "deposit_usd": clean_number(total_usd * 0.3)}
+               "name": name, "contact": contact, "job_date": job_date.isoformat(), "area": area,
+               "items": items, "total_usd": total, "deposit_usd": clean_number(total * 0.3)}
     BOOKINGS_FILE.parent.mkdir(exist_ok=True)
     with open(BOOKINGS_FILE, "a", encoding="utf-8") as file:
         file.write(json.dumps({"created": datetime.now().isoformat(timespec="seconds"), **booking}) + "\n")
@@ -174,9 +200,7 @@ def plan_clean_break(
             quotes.append(get_quote(job["service"], job_date, area, job.get("option", "")))
         except ToolError as error:
             raise ToolError(f"Job {number} ({job['service']}): {error} Nothing was booked.") from error
-    items = [f"{quote['service']}, {quote['option']}" + (" (express)" if quote["express"] else "")
-             for quote in quotes]
-    booking = create_booking_request(name, contact, job_date, items, sum(quote["price_usd"] for quote in quotes))
+    booking = create_booking_request(name, contact, job_date, area, jobs, sum(quote["price_usd"] for quote in quotes))
     return {"quotes": quotes, "booking": booking}
 
 

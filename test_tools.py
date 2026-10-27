@@ -65,31 +65,64 @@ def test_quote_past_date():
 
 # create_booking_request (action tool)
 
-def test_booking_is_saved(bookings_file):
-    booking = server.create_booking_request("Rana", "03 123 456", NEXT_WEEK, ["the swap, beirut"], 40)
+SWAP = [{"service": "the swap"}]
+STUDIO_MOVE = [{"service": "silent move-out", "option": "studio"}]
+
+
+def test_booking_is_saved_with_the_area(bookings_file):
+    booking = server.create_booking_request("Rana", "03 123 456", NEXT_WEEK, "metn", STUDIO_MOVE, 150)
     assert booking["request_id"] == "CB-0001"
     assert booking["status"] == "pending team confirmation"
     saved = json.loads(bookings_file.read_text())
-    assert saved["name"] == "Rana" and saved["total_usd"] == 40
+    assert saved["name"] == "Rana" and saved["area"] == "metn" and saved["total_usd"] == 150
+    assert saved["items"] == ["silent move-out, studio"]
 
 
 def test_booking_bad_contact(bookings_file):
     with pytest.raises(ToolError, match="isn't a valid phone number or email"):
-        server.create_booking_request("Karim", "karim at gmail", NEXT_WEEK, ["fresh start, studio"], 120)
+        server.create_booking_request("Karim", "karim at gmail", NEXT_WEEK, "metn", SWAP, 55)
+    assert not bookings_file.exists()
+
+
+def test_booking_needs_a_name(bookings_file):
+    with pytest.raises(ToolError, match="needs the customer's name"):
+        server.create_booking_request("  ", "03123456", NEXT_WEEK, "beirut", SWAP, 40)
+    assert not bookings_file.exists()
+
+
+def test_booking_past_date_or_sunday(bookings_file):
+    with pytest.raises(ToolError, match="already passed"):
+        server.create_booking_request("Old", "03123456", date(2000, 1, 1), "beirut", SWAP, 40)
+    with pytest.raises(ToolError, match="Sunday"):
+        server.create_booking_request("Sam", "03123456", SUNDAY, "beirut", SWAP, 40)
+    assert not bookings_file.exists()
+
+
+def test_booking_wrong_total(bookings_file):
+    with pytest.raises(ToolError, match="cost \\$220 .* not \\$1"):
+        server.create_booking_request("Cheap", "03123456", NEXT_WEEK, "beirut",
+                                      [{"service": "silent move-out", "option": "2-bedroom"}], 1)
+    assert not bookings_file.exists()
+
+
+def test_booking_wrong_option(bookings_file):
+    with pytest.raises(ToolError, match="Job 1 \\(fresh start\\)"):
+        server.create_booking_request("Lea", "03123456", NEXT_WEEK, "beirut",
+                                      [{"service": "fresh start", "option": "mansion"}], 120)
     assert not bookings_file.exists()
 
 
 def test_booking_not_created_twice():
-    server.create_booking_request("Lea", "lea@mail.com", NEXT_WEEK, ["the swap, metn"], 55)
+    server.create_booking_request("Lea", "lea@mail.com", NEXT_WEEK, "metn", SWAP, 55)
     with pytest.raises(ToolError, match="CB-0001 already has this exact request"):
-        server.create_booking_request("lea", "lea@mail.com", NEXT_WEEK, ["the swap, metn"], 55)
+        server.create_booking_request("lea", "lea@mail.com", NEXT_WEEK, "metn", SWAP, 55)
 
 
 def test_booking_full_day():
-    server.create_booking_request("A", "a@mail.com", NEXT_WEEK, ["the swap, beirut"], 40)
-    server.create_booking_request("B", "b@mail.com", NEXT_WEEK, ["the swap, beirut"], 40)
+    server.create_booking_request("A", "a@mail.com", NEXT_WEEK, "beirut", SWAP, 40)
+    server.create_booking_request("B", "b@mail.com", NEXT_WEEK, "beirut", SWAP, 40)
     with pytest.raises(ToolError, match="fully booked"):
-        server.create_booking_request("C", "c@mail.com", NEXT_WEEK, ["the swap, beirut"], 40)
+        server.create_booking_request("C", "c@mail.com", NEXT_WEEK, "beirut", SWAP, 40)
 
 
 # plan_clean_break (orchestration tool)
@@ -102,6 +135,7 @@ def test_plan_quotes_then_books_once(bookings_file):
     ])
     assert [quote["price_usd"] for quote in plan["quotes"]] == [150, 40, 90]
     assert plan["booking"]["total_usd"] == 280
+    assert plan["booking"]["area"] == "beirut"
     assert len(bookings_file.read_text().splitlines()) == 1
 
 
