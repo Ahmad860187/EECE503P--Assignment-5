@@ -10,11 +10,15 @@ part I'm least happy with is the option argument. It means home size for most se
 Memory Vault and nothing at all for the Swap. Testing with the real model also showed me things I didn't plan for.
 Gemini turned "karim at gmail" into a full email by itself and booked it, so now the agent has to pass the contact
 exactly as written and the server decides if it's valid. When the customer then corrected the email, the agent
-made a second booking, so I added a duplicate check.
+made a second booking, so I added a duplicate check. Calling the booking tool directly showed one more problem.
+It trusted whatever it got, so I could save a booking for 2000-01-01, one on a Sunday and a $220 move-out for $1,
+and it didn't even keep the area. I moved the date and price rules into two small helper functions that get_quote
+and create_booking_request both use, so the booking tool now checks everything before saving and I still have
+exactly three tools.
 
 Three tools was enough for a booking demo, but it felt a bit tight. The duplicate problem came from the fact that
-there is no tool to update a booking, and create_booking_request doesn't check the date at all because that rule
-only lives in get_quote. If I kept working on it, I would add a tool to update or cancel a request, check public
+there is no tool to update a booking. The booking tool also repeats the price check that get_quote already did,
+which is a bit of extra work, but it means the action tool can't save something the business would never accept. If I kept working on it, I would add a tool to update or cancel a request, check public
 holidays and the team's real schedule instead of a fixed limit of two jobs a day, allow more than one Swap trip or
 Vault box, and save the bookings in SQLite instead of a JSON lines file. I would also want the team to get a
 notification when a request comes in, so it doesn't just sit in a file.

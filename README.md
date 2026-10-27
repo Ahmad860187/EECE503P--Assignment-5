@@ -15,9 +15,14 @@ connected it to an agent built with the OpenAI Agents SDK.
   hours away and gives the 30% deposit. It only reads, it never saves anything.
 - `create_booking_request` is the action tool. It saves a booking request to `data/bookings.jsonl` and gives
   it an id like CB-0001. It's a request and not a confirmed booking, because the team still calls the customer.
+  Before saving, it checks the date, the services and the total against the price list, so it can't save a
+  Sunday or a $220 job for $1.
 - `plan_clean_break` is the orchestration tool. It takes everything the customer wants, prices each job with
   `get_quote`, adds it up and sends one booking request with `create_booking_request`. If one job can't be
   priced, nothing gets booked.
+
+The date and price rules live in two small helper functions, `check_day` and `price_job`, that `get_quote` and
+`create_booking_request` both use. They aren't tools, so the server still has exactly three.
 
 There is also a resource, `cleanbreak://price-list`, with the prices and the rules. The agent reads it when it
 starts and puts it in its instructions.
@@ -27,7 +32,7 @@ When something is wrong, the tools give a clear error instead of failing silentl
 | Tool | Errors |
 |---|---|
 | get_quote | wrong option (it lists the right ones), a Sunday, a date in the past, an area outside Beirut and Metn |
-| create_booking_request | phone or email not valid, the same request twice, the day already has 2 jobs |
+| create_booking_request | no name, phone or email not valid, a past date or a Sunday, a wrong option, a total that doesn't match the price list, the same request twice, the day already has 2 jobs |
 | plan_clean_break | passes on the error of the job that failed and books nothing |
 
 ## Setup
@@ -45,6 +50,11 @@ On Mac or Linux, activate with `source .venv/bin/activate` instead.
 The agent runs on Gemini, not on an OpenAI model. Gemini has an OpenAI-compatible endpoint, so the Agents SDK
 can use it through `OpenAIChatCompletionsModel`. Copy `.env.example` to `.env` and put your key in it. A free
 key from Google AI Studio is enough. Tracing is turned off because it tries to send the traces to OpenAI.
+
+The default model is `gemini-3.1-flash-lite`. If it's busy or out of free quota, the agent tries
+`gemini-3.5-flash` and then `gemini-flash-lite-latest`. You can pick another one with `GEMINI_MODEL` in `.env`.
+The agent doesn't stream, because with Gemini two tool calls in the same streamed answer get merged into one
+broken call.
 
 ## Running it
 
@@ -79,7 +89,7 @@ Some things to try:
 pytest
 ```
 
-There are 14 tests. They call each tool directly, check every error in the table above and run a few calls
+There are 18 tests. They call each tool directly, check every error in the table above and run a few calls
 through an in-memory MCP client. They write to a temporary file, so they don't touch `data/bookings.jsonl`.
 
 ## Files
@@ -92,6 +102,5 @@ through an in-memory MCP client. They write to a temporary file, so they don't t
 ## Limits
 
 - The date check works on days, not times, and doesn't know public holidays.
-- `create_booking_request` doesn't check the date itself. It trusts it because `get_quote` already did.
 - Prices only come from the price list, so no discounts.
 - The Swap is priced as one trip and the Memory Vault as one box.
