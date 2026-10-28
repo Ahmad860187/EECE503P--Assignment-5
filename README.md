@@ -2,7 +2,7 @@
 
 EECE 503P/798S, Assignment C5 (Agent Tools)
 
-Demo video: (add link)
+Demo video: https://youtu.be/mfit_MxLx4Y
 
 Clean Break is the small Beirut moving company I used in the last two assignments. It handles the practical
 side of a breakup: moving out, swapping belongings with the ex, storing the sentimental stuff and cleaning the
