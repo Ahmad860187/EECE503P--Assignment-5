@@ -18,7 +18,8 @@ exactly three tools.
 
 Three tools was enough for a booking demo, but it felt a bit tight. The duplicate problem came from the fact that
 there is no tool to update a booking. The booking tool also repeats the price check that get_quote already did,
-which is a bit of extra work, but it means the action tool can't save something the business would never accept. If I kept working on it, I would add a tool to update or cancel a request, check public
-holidays and the team's real schedule instead of a fixed limit of two jobs a day, allow more than one Swap trip or
-Vault box, and save the bookings in SQLite instead of a JSON lines file. I would also want the team to get a
-notification when a request comes in, so it doesn't just sit in a file.
+which is a bit of extra work, but it means the action tool can't save something the business would never accept.
+If I kept working on it, I would add a tool to update or cancel a request, check public holidays and the team's
+real schedule instead of a fixed limit of two jobs a day, allow more than one Swap trip or Vault box, and save the
+bookings in SQLite instead of a JSON lines file. I would also want the team to get a notification when a request
+comes in, so it doesn't just sit in a file.

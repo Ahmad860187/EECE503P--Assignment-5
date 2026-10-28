@@ -4,7 +4,7 @@ The article (Ksenia Se, on Hugging Face and Turing Post) starts from a simple pr
 are stuck with their training data, and before MCP every link to a file system, a database or an API had to be
 written by hand for each app. Anthropic released MCP in November 2024 as an open standard to fix that. Few
 people cared at first, but by February 2025 there were over 1,000 community servers. The author compares it
-to USB or HTTP: one standard everything plugs into, which turns an N×M integration problem into N+M.
+to USB or HTTP: one standard everything plugs into, which turns an NxM integration problem into N+M.
 
 MCP has three roles that talk using JSON-RPC 2.0 messages. The host is the LLM application the user works with,
 like Claude Desktop or my own agent script. Inside the host there is a client for each server, which keeps the
